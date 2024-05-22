@@ -3,7 +3,7 @@ local bit = bit32 or require("bit")
 
 RAM_MAP = {
     constant = 0,
-    arguement = 2,
+    argument = 2,
     pointer = 3,
     this = 3,
     that = 4,
@@ -15,56 +15,93 @@ function FileExists(name)
     if f~=nil then io.close(f) return true else return false end
  end
 
--- When pushing:
--- Go to the address, store the value in the data register, then go to the stack, and M=D. Then increment SP
--- When poppping:
-
 function ConvertPushInstruction(PushInstruction)
-    --In the form push segment index
     local words = {}
     for word in PushInstruction:gmatch("%S+") do
-        table.insert(words,word)
+        table.insert(words, word)
     end
-    TheValueFromTheRamMap = 0
-    if words[2] == "local" then
-        TheValueFromTheRamMap = 1 --local is a keyword, so use stupid trick
+    
+    local segment = words[2]
+    local index = tonumber(words[3])
+    local address = (segment == "local") and 1 or RAM_MAP[segment]
+    local TheStringToReturn
+    print("Push Instruction is " .. PushInstruction)
+    print("\t" .. words[2])
+    print("\t" .. address .. "\n")
+
+    if segment == "constant" then
+        TheStringToReturn = "@" .. index .. "\nD=A\n"
     else
-        TheValueFromTheRamMap = RAM_MAP[words[2]]
-    end
-    if words[2] == "constant" then
-        TheStringToReturn = "@" .. tostring(TheValueFromTheRamMap) .. "\nD=A\n"
-    else
-        TheStringToReturn = "@" .. tostring(TheValueFromTheRamMap) .. "\nA=M"
-        --Then increment to the index
-        for i = 1, tonumber(words[3]), 1 do
+        TheStringToReturn = "@" .. address .. "\nA=M"
+        for i = 1, index do
             TheStringToReturn = TheStringToReturn .. "\nA=A+1"
         end
         TheStringToReturn = TheStringToReturn .. "\nD=M\n"
     end
+    
     return TheStringToReturn .. "@SP\nA=M\nM=D\n@SP\nM=M+1\n"
 end
--- Go to the top of the stack. store the value in the D register. Then set value to 0. Decrement stack pointer. Then go to the address and set the value there to D.
 
-function ConvertPopInstruction(PullInstruction)
-    --In the form push segment index
+function ConvertPopInstruction(PopInstruction)
     local words = {}
-    for word in PullInstruction:gmatch("%S+") do
-        table.insert(words,word)
+    for word in PopInstruction:gmatch("%S+") do
+        table.insert(words, word)
     end
-    TheValueFromTheRamMap = 0
-    if words[2] == "local" then
-        TheValueFromTheRamMap = 1 --local is a keyword, so use stupid trick
-    else
-        TheValueFromTheRamMap = RAM_MAP[words[2]]
+    local segment = words[2]
+    local index = tonumber(words[3])
+    local address = (segment == "local") and 1 or RAM_MAP[segment]
+    print("Pop Instruction is " .. PopInstruction)
+    print("\t" .. words[2])
+    print("\t" .. address .. "\n")
+    local TheStringToReturn = "@SP\nA=M\nA=A-1\nD=M\nM=0\n@SP\nM=M-1\n@" .. address .. "\nA=M"
+    for i = 1, index do
+        TheStringToReturn = TheStringToReturn .. "\nA=A+1"
     end
-    TheStringToReturn = "@SP\nA=M\nD=M\nM=0\n@SP\nM=M-1\n@" .. tostring(TheValueFromTheRamMap) .. "\nA=M\n"
-    --Then increment to the index
-    for i = 1, tonumber(words[3]), 1 do
-        TheStringToReturn = TheStringToReturn .. "A=A+1\n"
-    end
-    return TheStringToReturn .. "M=D"
+    TheStringToReturn = TheStringToReturn .. "\nM=D\n"
+    
+    return TheStringToReturn
 end
 
+function DoMath(MathInstruction)
+    --The VM represents true and false as -1 (minus one, 0xFFFF) and 0 (zero, 0x0000), respectively.
+    TheStringToReturn = ""
+    --There are two types of MathInstructions, those with one input and those with two
+    TwoInputInstructions = {"sub", "add", "eg", "gt", "lt", "and", "or"}
+    OneInputInstructions = {"neg", "not"}
+        --Go to the stack pointer and store the first value in the D register. Then go to the next value
+        TheStringToReturn = "@SP\nA=M\nA=A-1\nA=A-1\nD=M\nA=A+1\n"
+        if MathInstruction == "sub" then
+            TheStringToReturn = TheStringToReturn .. "D=D-M\n"
+        end
+        if MathInstruction == "add" then
+            TheStringToReturn = TheStringToReturn .. "D=D+M\n"
+        end
+        TheStringToReturn = TheStringToReturn .. "M=0\nA=A-1\nM=D\n@SP\nM=M-1\n"
+    return TheStringToReturn
+end
+
+function CreateTheAsmFile(filename)
+    local file = io.open(filename .. ".vm", 'rb')
+    local parsed = file:read('*a'):gsub("\r\n", "\n")
+    file:close()
+    parsed = parsed:gsub("//.-\n", "")
+    local output_file = io.open(filename .. ".asm", 'w')
+    for line in parsed:gmatch("[^\n]+") do
+        if line:match("^push") then
+            -- ^@: Matches lines that start with '@' (A-instruction)
+            output_file:write(ConvertPushInstruction(line))
+        elseif line:match("^pop") then
+            -- ^%(: Excludes lines that start with '(' (labels)
+            output_file:write(ConvertPopInstruction(line))
+            else 
+                if line:match("^add") or line:match("^sub") then
+                    output_file:write(DoMath(line))
+                end
+            end
+    end
+    output_file:close()
+
+end
 -- First check if the input is a .vm or a path
 if string.sub(arg[1], -3) == ".vm" then
     if FileExists(arg[1]) then
@@ -77,8 +114,11 @@ else
         print("Directory doesn't exist")
     else
         --Now check if the file exists there
+        
         if FileExists(arg[1]:gsub("^.*/", "") .. ".vm") then
-            print("The file exists")
+            --print(lfs.currentdir())
+            --print(arg[1]:match("([^/]+)$") .. ".vm")
+            CreateTheAsmFile(arg[1]:match("([^/]+)$"))
         else
             print("The file doesn't exist")
         end
