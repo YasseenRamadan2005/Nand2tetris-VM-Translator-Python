@@ -61,29 +61,50 @@ def grouper_and_translate(instructions, name_of_file):
             if next_op == "pop":
                 # If consecutive push and pop operations, parse them together
                 pop_count = count_consecutive_ops(lines, index + push_count, "pop")
+                # print(pop_count, push_count)
                 if push_count == pop_count:
                     asm_code += push_pop_parser(
                         lines[index : index + push_count + pop_count], name_of_file
                     )
                 else:
-                    # If not equal number of push and pop operations, parse individually
-                    for i in range(push_count - pop_count):
+                    if push_count > pop_count:
+                        # If not equal number of push and pop operations, parse individually
+                        for i in range(push_count - pop_count):
+                            asm_code += (
+                                sole_push_instruction(lines[index + i], name_of_file)
+                                + "\n"
+                            )
                         asm_code += (
-                            sole_push_instruction(lines[index + i], name_of_file) + "\n"
+                            push_pop_parser(
+                                lines[
+                                    index
+                                    + push_count
+                                    - pop_count : index
+                                    + push_count
+                                    + pop_count
+                                ],
+                                name_of_file,
+                            )
+                            + "\n"
                         )
-                    asm_code += (
-                        push_pop_parser(
-                            lines[
-                                index
-                                + push_count
-                                - pop_count : index
-                                + push_count
-                                + pop_count
-                            ],
-                            name_of_file,
+                    else:
+                        print(lines[index : index + push_count + push_count])
+                        asm_code += (
+                            push_pop_parser(
+                                lines[index : index + push_count + push_count],
+                                name_of_file,
+                            )
+                            + "\n"
                         )
-                        + "\n"
-                    )
+                        for i in range(pop_count - push_count):
+                            print(lines[index + i + push_count + push_count])
+                            asm_code += (
+                                sole_pop_instruction(
+                                    lines[index + i + push_count + push_count],
+                                    name_of_file,
+                                )
+                                + "\n"
+                            )
                 index += push_count + pop_count
             elif next_op in simple_two_input_ops:
                 if push_count == 2:  # Check if it's a double push math group
@@ -140,7 +161,6 @@ def translate_file(vm_file_path):
     with open(vm_file_path, "r") as vm_file:
         vm_instructions = vm_file.read()
     asm_code = grouper_and_translate(vm_instructions, name_of_file)
-    print(asm_code)
     with open(asm_file_path, "w") as asm_file:
         asm_file.write(asm_code)
 
