@@ -81,8 +81,8 @@ def sole_pop_instruction(instruction, name_of_file):
         return f"{decrement_stack_pointer}{address_code}M=D\n"
 
     return (
-        f"{decrement_stack_pointer}"
         f"@{index}\nD=A\n@{segment_map[segment]}\nD=D+M\n@R13\nM=D\n"
+        f"{decrement_stack_pointer}"
         f"@R13\nA=M\nM=D\n"
     )
 
