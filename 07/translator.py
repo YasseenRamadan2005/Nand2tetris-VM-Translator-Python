@@ -74,21 +74,13 @@ def grouper_and_translate(instructions, name_of_file):
                                 sole_push_instruction(lines[index + i], name_of_file)
                                 + "\n"
                             )
-                        asm_code += (
-                            push_pop_parser(
-                                lines[
-                                    index
-                                    + push_count
-                                    - pop_count : index
-                                    + push_count
-                                    + pop_count
-                                ],
-                                name_of_file,
-                            )
+                        #Now catch the group
+                        asm_code += (push_pop_parser(lines[index + push_count - pop_count : index + push_count + pop_count]
+                                                     ,name_of_file,)
                             + "\n"
                         )
                     else:
-                        print(lines[index : index + push_count + push_count])
+                        #Case where more pops than pushes
                         asm_code += (
                             push_pop_parser(
                                 lines[index : index + push_count + push_count],
@@ -97,7 +89,6 @@ def grouper_and_translate(instructions, name_of_file):
                             + "\n"
                         )
                         for i in range(pop_count - push_count):
-                            print(lines[index + i + push_count + push_count])
                             asm_code += (
                                 sole_pop_instruction(
                                     lines[index + i + push_count + push_count],
@@ -182,9 +173,7 @@ def main():
         translate_file(input_path)
     else:
         # Invalid input path
-        print(
-            "Error: Invalid input path. Provide a .vm file or a directory containing .vm files."
-        )
+        print("Error: Invalid input path. Provide a .vm file or a directory containing .vm files.")
         sys.exit(1)
 
 
