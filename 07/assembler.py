@@ -39,6 +39,12 @@ def go_to_address(segment, index, name_of_file):
     return f"@{index}\nD=A\n@{segment_map[segment]}\nA=D+M\n"
 
 
+def load_value_at_address(segment, index, name_of_file):
+    if segment == "constant":
+        return go_to_address(segment, index, name_of_file) + "D=A\n"
+    return go_to_address(segment, index, name_of_file) + "D=M\n"
+
+
 def sole_push_instruction(instruction, name_of_file):
     _, segment, index = instruction.split()
     go_to_top_of_stack = "@SP\nM=M+1\nA=M-1\n"
@@ -102,33 +108,22 @@ def push_pop_optimized(push_instruction, pop_instruction, name_of_file):
     _, pop_segment, pop_index = pop_instruction.split()
     optimized_code = "//" + push_instruction + " , " + pop_instruction + "\n"
 
-    # Load value from push segment
-    if push_segment == "constant":
-        optimized_code += f"@{push_index}\nD=A\n"
-    else:
-        optimized_code += (
-            go_to_address(push_segment, push_index, name_of_file) + "D=M\n"
+    # If the pop address is unreachable, then store the address @13. Then store the push value in the D register and load at the address @13.
+
+    if not (is_reachable(pop_segment, pop_index)):
+        return (
+            optimized_code
+            + f"@{pop_index}\nD=A\n@{segment_map[pop_segment]}\nD=D+M\n@13\nM=D\n"
+            + load_value_at_address(push_segment, push_index, name_of_file)
+            + "@13\nA=M\nM=D\n"
         )
-
-    # Store value into pop segment
-    if pop_segment in {"pointer", "temp"}:
-        base_address = 3 if pop_segment == "pointer" else 5
-        optimized_code += f"@{base_address + int(pop_index)}\nM=D\n"
-    elif pop_segment == "static":
-        optimized_code += f"@{name_of_file}.{pop_index}\nM=D\n"
+    # Else, store the value at the push address in the D register, then store in the pop adress
     else:
-        if int(pop_index) < 8:
-            optimized_code += (
-                go_to_address(pop_segment, pop_index, name_of_file) + "M=D\n"
-            )
-        else:
-            optimized_code += (
-                f"@R13\nM=D\n"
-                f"@{pop_index}\nD=A\n@{segment_map[pop_segment]}\nD=D+M\n@R14\nM=D\n"
-                f"@R13\nD=M\n@R14\nA=M\nM=D\n"
-            )
-
-    return optimized_code
+        return (
+            load_value_at_address(push_segment, push_index, name_of_file)
+            + go_to_address(pop_segment, pop_index, name_of_file)
+            + "M=D\n"
+        )
 
 
 def convert_sole_math_instr(math_instruction):
