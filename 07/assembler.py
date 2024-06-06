@@ -46,6 +46,7 @@ def load_value_at_address(segment, index, name_of_file):
 
 
 def sole_push_instruction(instruction, name_of_file):
+    print(instruction)
     _, segment, index = instruction.split()
     go_to_top_of_stack = "@SP\nM=M+1\nA=M-1\n"
 
@@ -160,13 +161,46 @@ def convert_sole_math_instr(math_instruction):
 
 
 def convert_double_push_math_group(instructions, name_of_file):
+    # Possibilities: Two Constants, Reachable Adress and a constant, Unreachable Address and a constant, two reachable address, two 
+    # unreachable addresses, one reachable and one not.
+    
+    #Two constants: Hard Code it
+    #RA + Const : Store Const in the D reg
+    #UnRa + Const : Store address of Unra @13, then store Const in D
+    #Ra + Ra : Store the first in the D reg then go to the second
+    #UnRa + Ra: Store address of Unra @13, then store Ra in D
+    #UnRa + UnRa" Store address of the first UnRa @13. Then store UnRa in D.
+
+    #Idea: If Unra, always store @13. If a RA or Const, store in the D register.
     push1, push2, math_instruction = instructions
     _, segment1, index1 = push1.split()
     _, segment2, index2 = push2.split()
 
+    if segment1 == "constant" and segment2 == "constant":
+        value = 0
+        match math_instruction:
+            case "add":
+                value = int(index1) + int(index2)
+            case "sub":
+                value = int(index1) - int(index2)
+            case "and":
+                value = int(index1) & int(index2)
+            case "or":
+                value = int(index1) | int(index2)
+        return sole_push_instruction("push constant " + str(value), name_of_file)
+
+    the_string_to_return = ""
+
     math_op_map = {
         "add": "D=D+M",
         "sub": "D=M-D",
+        "and": "D=D&M",
+        "or": "D=D|M",
+    }
+
+    other_math_op_map = {
+        "add": "D=D+M",
+        "sub": "D=D-M",
         "and": "D=D&M",
         "or": "D=D|M",
     }
@@ -177,82 +211,21 @@ def convert_double_push_math_group(instructions, name_of_file):
         "and": "D=D&A",
         "or": "D=D|A",
     }
-
-    address1 = go_to_address(segment1, index1, name_of_file)
-    address2 = go_to_address(segment2, index2, name_of_file)
-
-    def load_value(segment, address):
-        if segment == "constant":
-            return address + "D=A\n"  # Load constant value into D
+    
+    #Case where they're not both reachable
+    if not(is_reachable(segment1, index1, name_of_file)) or not(is_reachable(segment2, index2, name_of_file)):
+        if not(is_reachable(segment1, index1, name_of_file)) and not(is_reachable(segment2, index2, name_of_file)):
+            the_string_to_return += f"@{index1}\nD=A\n@{segment_map[segment1]}\nD=D+M\n@13\nM=D\n" + go_to_address(segment2, index2, name_of_file) + "D=M\n@13\nA=M\n" + math_op_map[math_instruction] + "\n"
+        elif is_reachable(segment1, index1, name_of_file) and not(is_reachable(segment2, index2, name_of_file)):
+            the_string_to_return += f"@{index2}\nD=A\n@{segment_map[segment2]}\nD=D+M\n@13\nM=D\n" + load_value_at_address(segment1, index1, name_of_file) + "@13\nA=M\n" + other_math_op_map[math_instruction] + "\n"
         else:
-            return address + "D=M\n"  # Load value from memory into D
+            the_string_to_return += f"@{index1}\nD=A\n@{segment_map[segment1]}\nD=D+M\n@13\nM=D\n" + load_value_at_address(segment2, index2, name_of_file) + "@13\nA=M\n" + math_op_map[math_instruction] + "\n"
+    else:
+        #Case where they're both reachable
+        the_string_to_return += load_value_at_address(segment1, index1, name_of_file) + go_to_address(segment2, index2, name_of_file)
+    #By this point, I have to be careful whether the first or second value is @ the D reg. (since subtraction is not communative)
 
-    comment = f'// "{push1}, {push2}, {math_instruction}"\n'
-    result_push = "@SP\nAM=M+1\nA=A-1\nM=D  // Push the result to the stack\n"
-
-    # Handle the case where the same address is used twice
-    if segment1 == segment2 and index1 == index2:
-        return (
-            comment
-            + address1
-            + "D=M\n"  # Load value from memory into D
-            + math_op_map[math_instruction]
-            + "\n"
-            + result_push
-        )
-
-    # Handle both reachable segments
-    if is_reachable(segment1, index1) and is_reachable(segment2, index2):
-        return (
-            comment
-            + load_value(segment2, address2)
-            + address1
-            + (
-                A_math_op_map[math_instruction]
-                if segment1 == "constant"
-                else math_op_map[math_instruction]
-            )
-            + "\n"
-            + result_push
-        )
-
-    # Handle only one reachable segment
-    if is_reachable(segment1, index1) or is_reachable(segment2, index2):
-        (
-            reachable_segment,
-            unreachable_segment,
-            reachable_address,
-            unreachable_address,
-        ) = (
-            (segment1, segment2, address1, address2)
-            if is_reachable(segment1, index1)
-            else (segment2, segment1, address2, address1)
-        )
-        return (
-            comment
-            + unreachable_address
-            + "D=M\n"
-            + load_value(reachable_segment, reachable_address)
-            + (
-                A_math_op_map[math_instruction]
-                if unreachable_segment == "constant"
-                else math_op_map[math_instruction]
-            )
-            + "\n"
-            + result_push
-        )
-
-    # Both addresses are unreachable
-    return (
-        comment
-        + load_value(segment1, address1)
-        + "@13\nM=D  // Store the first value in R13\n"
-        + address2
-        + "D=M\n@13\n"
-        + math_op_map[math_instruction]
-        + "\n"
-        + result_push
-    )
+    return the_string_to_return
 
 
 def convert_push_math_group(instructions, name_of_file):
