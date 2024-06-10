@@ -8,6 +8,8 @@ from assembler import (
     convert_push_math_group,
     push_pop_parser,
     push_pop_optimized,
+    math_one_push,
+    MATH_two_pushes,
 )
 
 # Define sets of different types of operations
@@ -70,77 +72,126 @@ def grouper_and_translate(instructions, name_of_file):
                     if push_count > pop_count:
                         # If not equal number of push and pop operations, parse individually
                         for i in range(push_count - pop_count):
-                            asm_code += (
-                                sole_push_instruction(lines[index + i], name_of_file)
-                                + "\n"
+                            asm_code += sole_push_instruction(
+                                lines[index + i], name_of_file
                             )
-                        #Now catch the group
-                        asm_code += (push_pop_parser(lines[index + push_count - pop_count : index + push_count + pop_count]
-                                                     ,name_of_file,)
-                            + "\n"
+                        asm_code += push_pop_parser(
+                            lines[
+                                index
+                                + push_count
+                                - pop_count : index
+                                + push_count
+                                + pop_count
+                            ],
+                            name_of_file,
                         )
                     else:
-                        #Case where more pops than pushes
-                        asm_code += (
-                            push_pop_parser(
-                                lines[index : index + push_count + push_count],
-                                name_of_file,
-                            )
-                            + "\n"
+                        # Case where more pops than pushes
+                        asm_code += push_pop_parser(
+                            lines[index : index + push_count + push_count],
+                            name_of_file,
                         )
                         for i in range(pop_count - push_count):
-                            asm_code += (
-                                sole_pop_instruction(
-                                    lines[index + i + push_count + push_count],
-                                    name_of_file,
-                                )
-                                + "\n"
+                            asm_code += sole_pop_instruction(
+                                lines[index + i + push_count + push_count],
+                                name_of_file,
                             )
                 index += push_count + pop_count
-            elif next_op in simple_two_input_ops:
-                if push_count == 2:  # Check if it's a double push math group
-                    asm_code += (
-                        convert_double_push_math_group(
+            elif next_op in simple_two_input_ops or next_op in one_input_ops:
+                # First, check if the previous the last 2 are a push
+                distance_traveled = 0
+                if push_count == 1:
+                    # Only one push and a math instruction.
+                    # Now check if there are further instructions
+                    if index + push_count == len(lines) - 1 or not (
+                        lines[index + push_count + 1] in simple_two_input_ops
+                        or lines[index + push_count + 1] in one_input_ops
+                        or lines[index + push_count + 1].split()[0] == "pop"
+                    ):
+                        asm_code += math_one_push(
                             lines[index : index + push_count + 1], name_of_file
                         )
-                        + "\n"
-                    )
-                elif push_count == 1:  # It's a single push math group
-                    asm_code += (
-                        convert_push_math_group(
-                            lines[index : index + push_count + 1], name_of_file
+                        distance_traveled = 1
+                    else:
+                        next_next_next_op = lines[index + push_count + 1]
+                        asm_code += math_one_push(
+                            lines[index : index + push_count + 1],
+                            name_of_file,
+                            lines[index + push_count + 1],
                         )
-                        + "\n"
-                    )
-                else:
-                    # Otherwise, parse individually
-                    for i in range(push_count - 2):
+                        distance_traveled = 2
+                elif next_op in one_input_ops:
+                    # By this case I know there exists at least on extra push despite having a one input math instruction
+                    for i in range(push_count - 1):
+                        print(lines[index + i])
                         asm_code += sole_push_instruction(
                             lines[index + i], name_of_file
                         )
-                    asm_code += convert_double_push_math_group(
-                        lines[index + push_count - 2 : index + push_count + 1],
+                    if index + push_count == len(lines) - 1 or not (
+                        lines[index + push_count + 1] in simple_two_input_ops
+                        or lines[index + push_count + 1] in one_input_ops
+                        or lines[index + push_count + 1].split()[0] == "pop"
+                    ):
+                        asm_code += math_one_push(
+                            lines[index + push_count - 1 : index + push_count + 1],
+                            name_of_file,
+                        )
+                        distance_traveled = 1
+                    else:
+                        next_next_next_op = lines[index + push_count + 1]
+                        asm_code += math_one_push(
+                            lines[index + push_count - 1 : index + push_count + 1],
+                            name_of_file,
+                            lines[index + push_count + 1],
+                        )
+                        distance_traveled = 2
+                    math_one_push(
+                        lines[index + push_count - 1 : index + push_count + 1],
                         name_of_file,
                     )
-                index += push_count + 1
+                else:
+                    if push_count > 2:
+                        for i in range(push_count - 2):
+                            asm_code += sole_push_instruction(
+                                lines[index + i], name_of_file
+                            )
+                    # By this case I know there exists a push, push, math instruction
+                    if index + push_count == len(lines) - 1 or not (
+                        lines[index + push_count + 1] in simple_two_input_ops
+                        or lines[index + push_count + 1] in one_input_ops
+                        or lines[index + push_count + 1].split()[0] == "pop"
+                    ):
+                        asm_code += MATH_two_pushes(
+                            lines[index + push_count - 2 : index + push_count + 1],
+                            name_of_file,
+                        )
+                        distance_traveled = 1
+                    else:
+                        next_next_next_op = lines[index + push_count + 1]
+                        asm_code += MATH_two_pushes(
+                            lines[index + push_count - 2 : index + push_count + 1],
+                            name_of_file,
+                            lines[index + push_count + 1],
+                        )
+                        distance_traveled = 2
+                    # Now clean up any extra pushes
+                index += push_count + distance_traveled
             else:
                 # Parse push instructions individually
                 for i in range(push_count):
-                    asm_code += (
-                        sole_push_instruction(lines[index + i], name_of_file) + "\n"
-                    )
+                    asm_code += sole_push_instruction(lines[index + i], name_of_file)
                 index += push_count
         else:
             if operation in {"pop"}:
                 # Parse pop instruction
-                asm_code += sole_pop_instruction(current_line, name_of_file) + "\n"
+                asm_code += sole_pop_instruction(current_line, name_of_file)
             elif (
                 operation in simple_two_input_ops
                 or operation in one_input_ops
                 or operation in comp_ops
             ):
                 # Parse math instructions
-                asm_code += convert_sole_math_instr(operation) + "\n"
+                asm_code += convert_sole_math_instr(operation)
             index += 1
     return asm_code
 
@@ -173,7 +224,9 @@ def main():
         translate_file(input_path)
     else:
         # Invalid input path
-        print("Error: Invalid input path. Provide a .vm file or a directory containing .vm files.")
+        print(
+            "Error: Invalid input path. Provide a .vm file or a directory containing .vm files."
+        )
         sys.exit(1)
 
 
