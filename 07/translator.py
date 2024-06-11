@@ -53,7 +53,6 @@ def grouper_and_translate(instructions, name_of_file):
         current_line = lines[index]
         parts = current_line.split()
         operation = parts[0]
-
         if operation == "push":
             push_count = count_consecutive_ops(lines, index, "push")
             if index + push_count < len(lines):
@@ -65,37 +64,18 @@ def grouper_and_translate(instructions, name_of_file):
                 pop_count = count_consecutive_ops(lines, index + push_count, "pop")
                 # print(pop_count, push_count)
                 if push_count == pop_count:
-                    asm_code += push_pop_parser(
-                        lines[index : index + push_count + pop_count], name_of_file
-                    )
+                    asm_code += push_pop_parser(lines[index : index + push_count + pop_count], name_of_file)
                 else:
                     if push_count > pop_count:
                         # If not equal number of push and pop operations, parse individually
                         for i in range(push_count - pop_count):
-                            asm_code += sole_push_instruction(
-                                lines[index + i], name_of_file
-                            )
-                        asm_code += push_pop_parser(
-                            lines[
-                                index
-                                + push_count
-                                - pop_count : index
-                                + push_count
-                                + pop_count
-                            ],
-                            name_of_file,
-                        )
+                            asm_code += sole_push_instruction(lines[index + i], name_of_file)
+                        asm_code += push_pop_parser(lines[index + push_count - pop_count : index + push_count + pop_count], name_of_file,)
                     else:
                         # Case where more pops than pushes
-                        asm_code += push_pop_parser(
-                            lines[index : index + push_count + push_count],
-                            name_of_file,
-                        )
+                        asm_code += push_pop_parser(lines[index : index + push_count + push_count], name_of_file)
                         for i in range(pop_count - push_count):
-                            asm_code += sole_pop_instruction(
-                                lines[index + i + push_count + push_count],
-                                name_of_file,
-                            )
+                            asm_code += sole_pop_instruction(lines[index + i + push_count + push_count],name_of_file)
                 index += push_count + pop_count
             elif next_op in simple_two_input_ops or next_op in one_input_ops:
                 # First, check if the previous the last 2 are a push
@@ -108,17 +88,10 @@ def grouper_and_translate(instructions, name_of_file):
                         or lines[index + push_count + 1] in one_input_ops
                         or lines[index + push_count + 1].split()[0] == "pop"
                     ):
-                        asm_code += math_one_push(
-                            lines[index : index + push_count + 1], name_of_file
-                        )
+                        asm_code += math_one_push(lines[index : index + push_count + 1], name_of_file)
                         distance_traveled = 1
                     else:
-                        next_next_next_op = lines[index + push_count + 1]
-                        asm_code += math_one_push(
-                            lines[index : index + push_count + 1],
-                            name_of_file,
-                            lines[index + push_count + 1],
-                        )
+                        asm_code += math_one_push(lines[index : index + push_count + 1], name_of_file, lines[index + push_count + 1])
                         distance_traveled = 2
                 elif next_op in one_input_ops:
                     # By this case I know there exists at least on extra push despite having a one input math instruction
@@ -132,18 +105,11 @@ def grouper_and_translate(instructions, name_of_file):
                         or lines[index + push_count + 1] in one_input_ops
                         or lines[index + push_count + 1].split()[0] == "pop"
                     ):
-                        asm_code += math_one_push(
-                            lines[index + push_count - 1 : index + push_count + 1],
-                            name_of_file,
-                        )
+                        asm_code += math_one_push(lines[index + push_count - 1 : index + push_count + 1], name_of_file)
                         distance_traveled = 1
                     else:
                         next_next_next_op = lines[index + push_count + 1]
-                        asm_code += math_one_push(
-                            lines[index + push_count - 1 : index + push_count + 1],
-                            name_of_file,
-                            lines[index + push_count + 1],
-                        )
+                        asm_code += math_one_push(lines[index + push_count - 1 : index + push_count + 1], name_of_file, lines[index + push_count + 1])
                         distance_traveled = 2
                     math_one_push(
                         lines[index + push_count - 1 : index + push_count + 1],
@@ -167,7 +133,6 @@ def grouper_and_translate(instructions, name_of_file):
                         )
                         distance_traveled = 1
                     else:
-                        next_next_next_op = lines[index + push_count + 1]
                         asm_code += MATH_two_pushes(
                             lines[index + push_count - 2 : index + push_count + 1],
                             name_of_file,
@@ -224,9 +189,7 @@ def main():
         translate_file(input_path)
     else:
         # Invalid input path
-        print(
-            "Error: Invalid input path. Provide a .vm file or a directory containing .vm files."
-        )
+        print("Error: Invalid input path. Provide a .vm file or a directory containing .vm files.")
         sys.exit(1)
 
 
