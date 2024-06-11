@@ -72,6 +72,8 @@ def load_value_at_address(segment, index, name_of_file):
     index = int(index)
     if segment == "constant" and index not in {-1, 0, 1}:
         return f"@{index}\nD=A\n"
+    if segment == "constant" and index in {-1, 0, 1}:
+        return f"D={index}\n"
     if segment == "static":
         return f"@{name_of_file}.{index}\nD=M\n"
     if segment in {"pointer", "temp"}:
@@ -201,18 +203,6 @@ def convert_sole_math_instr(math_instruction):
 
     return the_string_to_return
 
-
-"I want a function that take in 2 pushes and a math instruction and sets the D register to the correct value."
-
-"""Cases:
-    Two pushes & math. Then push and math (+1 SP)
-        If the third push if unreachable, store its address at 13. Then calculate the first 2 pushses. Then go to the address @13 and finish the work. Then push on stack.
-    Two pushes & two math insturctions.(0 SP)
-        Calcuate the first math instruction. Then go to the top of the stack and do the math.
-
-"""
-
-
 def set_D_regster_to_correct_value_from_two_pushes_and_a_two_input_math(instructions, name_of_file):
     A_math_op_map = {
         "add": "D=D+A",
@@ -226,64 +216,70 @@ def set_D_regster_to_correct_value_from_two_pushes_and_a_two_input_math(instruct
         "and": "D=D&M",
         "or": "D=D|M",
     }
+    
     push1, push2, math_instruction = instructions
     _, segment1, index1 = push1.split()
     _, segment2, index2 = push2.split()
     the_string_to_return = f"//{push1} {push2} {math_instruction}\n"
-    #First, check if both are constants
+
+    # Check if both are constants
     if segment1 == "constant" and segment2 == "constant":
         value = 0
-        match math_instruction:
-            case "add":
-                value = int(index1) + int(index2)
-            case "sub":
-                value = int(index1) - int(index2)
-            case "and":
-                value = int(index1) & int(index2)
-            case "or":
-                value = int(index1) | int(index2)
-        #Check if avaliable constant
-        if value == 0 or value == -1 or value == 1:
+        if math_instruction == "add":
+            value = int(index1) + int(index2)
+        elif math_instruction == "sub":
+            value = int(index1) - int(index2)
+        elif math_instruction == "and":
+            value = int(index1) & int(index2)
+        elif math_instruction == "or":
+            value = int(index1) | int(index2)
+        
+        if value in {0, -1, 1}:
             return "D=" + str(value) + "\n"
         else:
-            return "@" + str(value) + "\nD=A\n"
-    #Now the case where one is a constant:
+            return f"@{value}\nD=A\n"
+
+    # Case where one is a constant
     if segment1 == "constant" or segment2 == "constant":
         the_constant_value = index1 if segment1 == "constant" else index2
         the_segment_value = segment1 if segment1 != "constant" else segment2
         the_index_value = index1 if segment1 != "constant" else index2
 
-        #Remeber, the only default math instructions with constants are +1 and -1. There is no +0 or ANY bitwise operations with 1 or -1 or 0.
-        if int(the_constant_value) in {-1,1} and math_instruction in {"add", "sub"}:
-            the_D_modifier = ""
-            if math_instruction == "add" and the_constant_value == "1" or math_instruction == "sub" and the_constant_value == "-1":
-                the_D_modifier = "+"
-            else:
-                the_D_modifier = "-"
-            return go_to_address(the_segment_value, the_index_value, name_of_file) + "D=M" + the_D_modifier + "1\n"
+        if int(the_constant_value) in {-1, 1} and math_instruction in {"add", "sub"}:
+            the_D_modifier = "+" if (math_instruction == "add" and the_constant_value == "1") or (math_instruction == "sub" and the_constant_value == "-1") else "-"
+            return go_to_address(the_segment_value, the_index_value, name_of_file) + f"D=M{the_D_modifier}1\n"
         else:
-            #Otherwise, I store load the value then go to the constant
-            the_string_to_return += load_value_at_address(the_segment_value, the_index_value, name_of_file) + go_to_address("constant", the_constant_value, name_of_file)
+            the_string_to_return += (load_value_at_address(the_segment_value, the_index_value, name_of_file) + go_to_address("constant", the_constant_value, name_of_file))
             if math_instruction == "sub":
-                #If the instructions are in the form "push address, push constant k, sub" - then D is address_value - K.
                 if segment1 != "constant":
                     return the_string_to_return + "D=D-A\n"
-                #If the instructions are in the form "push constant k, push address, sub" - then D is K - address_value.
                 return the_string_to_return + "D=A-D\n"
             else:
-                #Since the rest of the math ops are communative, order doesn't matter
-                return load_value_at_address(the_segment_value, the_index_value, name_of_file) + go_to_address("constant", the_constant_value, name_of_file) + A_math_op_map(math_instruction) + "\n"
+                return the_string_to_return + A_math_op_map[math_instruction] + "\n"
     
+    # Case where both segments and indices are the same
     if segment1 == segment2 and index1 == index2:
-        return the_string_to_return + load_value_at_address(segment1, index1, name_of_file) + math_op_map[math_instruction]
+        return the_string_to_return + load_value_at_address(segment1, index1, name_of_file) + math_op_map[math_instruction] + "\n"
     
-    #If both of the addresses are unreachable, store it @13. Then collect the value of the other in the D register. Then go to the address @13 and do the math.
+    # If both addresses are unreachable
     if not is_reachable(segment1, index1) and not is_reachable(segment2, index2):
-        return the_string_to_return + f"@{index1}\nD=A\n@{segment_map[segment1]}\nD=D+M\n@13\nM=D\n" + load_value_at_address(segment2, index2, name_of_file) + "@13\nA=M\n" + math_op_map[math_instruction]
-    if not(is_reachable(segment1, index1)):
-        #If they are not both reachable, but also not both unreachable, store the value of the unreachable one at the D register, then go to the reachable one and do the math.
-        return the_string_to_return + load_value_at_address(segment1, index1, name_of_file) + go_to_address(segment2, index2, name_of_file) + other_math_op_map[math_instruction] + "\n"
-    return the_string_to_return + load_value_at_address(segment2, index2, name_of_file) + go_to_address(segment1, index1, name_of_file) + math_op_map[math_instruction] + "\n"
+        return (the_string_to_return 
+                + f"@{index1}\nD=A\n@{segment_map[segment1]}\nD=D+M\n@13\nM=D\n" 
+                + load_value_at_address(segment2, index2, name_of_file) 
+                + "@13\nA=M\n" + math_op_map[math_instruction] + "\n")
+    
+    # If segment1 is unreachable
+    if not is_reachable(segment1, index1):
+        return (the_string_to_return 
+                + load_value_at_address(segment1, index1, name_of_file) 
+                + go_to_address(segment2, index2, name_of_file) 
+                + other_math_op_map[math_instruction] + "\n")
+
+    # If segment2 is unreachable
+    return (the_string_to_return 
+            + load_value_at_address(segment2, index2, name_of_file) 
+            + go_to_address(segment1, index1, name_of_file) 
+            + math_op_map[math_instruction] + "\n")
 
 
 #push, push, MATH
@@ -351,53 +347,102 @@ def convert_push_math_group(instructions, name_of_file):
 
 
 #This is the case where it is: push push MATH (with either MATH, pop, or math)
-def MATH_two_pushes(instructions, name_of_file, extra = ""):
-    the_string_to_return = f"\n//caught  {instructions} with {extra}\n"
-    #Case: Just two pushes and a math
-    if extra == "":
+def MATH_two_pushes(instructions, name_of_file, extra=""):
+    the_string_to_return = f"\n//caught {instructions} with {extra}\n"
+
+    # Case: Just two pushes and a math
+    if not extra:
         return convert_double_push_math_group(instructions, name_of_file)
-    if extra.split()[0] == "pop":
-        #If the pop address is unreachable, then store it @14.
-        if not(is_reachable(extra.split()[1] ,extra.split()[2])):
-            the_string_to_return += load_address(extra.split()[1],extra.split()[2], name_of_file) + "@14\nM=D\n" + set_D_regster_to_correct_value_from_two_pushes_and_a_two_input_math(instructions, name_of_file) + "@14\nA=M\nM=D\n"
+    
+    # Split extra for reuse
+    extra_parts = extra.split()
+
+    if extra_parts[0] == "pop":
+        push1_addr = instructions[0].split()[1:3]
+        push2_addr = instructions[1].split()[1:3]
+        pop_addr = extra_parts[1:3]
+
+        # Case where all the addresses are the same
+        if push1_addr == push2_addr == pop_addr:
+            return the_string_to_return + go_to_address(*push1_addr, name_of_file) + "D=M\n" + math_op_map_with_M[instructions[2]] + "\n"
+
+        # Case where pop address matches one of the pushes
+        for push_addr in [push1_addr, push2_addr]:
+            if pop_addr == push_addr:
+                other_push_addr = push2_addr if push_addr == push1_addr else push1_addr
+                  # Special case: first push address equals pop address, second push is "constant 1", math instruction is "sub"
+                if push_addr == push1_addr and other_push_addr == ["constant", "1"] and instructions[2] == "sub":
+                    return the_string_to_return + go_to_address(*push_addr, name_of_file) + "M=M-1\n"
+                if other_push_addr == ["constant", "1"] and instructions[2] == "add":
+                    return the_string_to_return + go_to_address(*pop_addr, name_of_file) + "M=M+1\n"
+                if is_reachable(*pop_addr):
+                    return (the_string_to_return 
+                            + load_value_at_address(*other_push_addr, name_of_file) 
+                            + go_to_address(*pop_addr, name_of_file) 
+                            + math_op_map_with_M[instructions[2]] + "\n")
+                else:
+                    return (the_string_to_return 
+                            + load_address(*pop_addr, name_of_file) 
+                            + "@14\nM=D\n" 
+                            + load_value_at_address(*other_push_addr, name_of_file) 
+                            + "@14\nA=M\n" 
+                            + math_op_map_with_M[instructions[2]] + "\n")
+        
+        # Case where pop address is unreachable
+        if not is_reachable(*pop_addr):
+            return (the_string_to_return 
+                    + load_address(*pop_addr, name_of_file) 
+                    + "@14\nM=D\n" 
+                    + set_D_regster_to_correct_value_from_two_pushes_and_a_two_input_math(instructions, name_of_file) 
+                    + "@14\nA=M\nM=D\n")
         else:
-            the_string_to_return += set_D_regster_to_correct_value_from_two_pushes_and_a_two_input_math(instructions, name_of_file) + go_to_address(extra.split()[1],extra.split()[2], name_of_file) + "M=D\n"
-        return the_string_to_return
-    #If two pushes and a math with a one-input math instruction, then +1 stack.
+            return (the_string_to_return 
+                    + set_D_regster_to_correct_value_from_two_pushes_and_a_two_input_math(instructions, name_of_file) 
+                    + go_to_address(*pop_addr, name_of_file) 
+                    + "M=D\n")
+
+    # Case: two pushes and a math with a one-input math instruction
     if extra in one_input_ops:
         the_string_to_return += set_D_regster_to_correct_value_from_two_pushes_and_a_two_input_math(instructions, name_of_file)
-        if extra == "not":
-            the_string_to_return += "\nD=-D\n"
-        else:
-            the_string_to_return += "\nD=!D\n"
+        the_string_to_return += "\nD=-D\n" if extra == "not" else "\nD=!D\n"
         return the_string_to_return + push_D_register_on_the_stack
-    else:
-        the_string_to_return += set_D_regster_to_correct_value_from_two_pushes_and_a_two_input_math(instructions, name_of_file) + "\n@SP\nA=M-1\n" + math_op_map_with_M[extra] + "\n"
+    
+    # Case: two pushes and a math with a two-input math instruction
+    the_string_to_return += (set_D_regster_to_correct_value_from_two_pushes_and_a_two_input_math(instructions, name_of_file) + "\n@SP\nA=M-1\n" + math_op_map_with_M[extra] + "\n")
+    
     return the_string_to_return
 
-
 #This is the case where it is: push math/MATH (with either MATH, pop, or math)
-def math_one_push(instructions, name_of_file, extra = ""):
+def math_one_push(instructions, name_of_file, extra=""):
     the_string_to_return = ""
-    push_value = load_value_at_address(instructions[0].split()[1],instructions[0].split()[2], name_of_file)
-    #Case 1: one push with a two input math instruction.
+    push_value = load_value_at_address(instructions[0].split()[1], instructions[0].split()[2], name_of_file)
+    
+    # Case 1: one push with a two-input math instruction
     if instructions[1] in two_input_simple_ops:
-        the_string_to_return += push_value + "@SP\nA=M-1\n" + math_op_map_with_M[instructions[1]]
+        the_string_to_return += push_value + "@SP\nA=M-1\n" + math_op_map_with_M[instructions[1]] + "\n"
     else:
         the_string_to_return += push_value + ("D=-D\n" if instructions[1] == "not" else "D=!D\n")
 
-    if extra != "":
+    if extra:
+        extra_parts = extra.split()
         if extra in one_input_ops:
-            the_string_to_return += ("D=-D\n" if extra == "not" else "D=!D\n") + push_D_register_on_the_stack
+            the_string_to_return += ("M=-M\n" if extra == "not" else "M=!M\n")
         elif extra in two_input_simple_ops:
             if instructions[1] in two_input_simple_ops:
                 the_string_to_return += "@SP\nAM=M-1\nA=A-1\n" + math_op_map_with_M[extra] + "\n"
             else:
                 the_string_to_return += "@SP\nA=M-1\nA=A-1\n" + math_op_map_with_M[extra] + "\n"
         else:
-            if is_reachable(extra.split()[1],extra.split()[2]):
-                the_string_to_return += go_to_address(extra.split()[1],extra.split()[2], name_of_file) + "M=D\n"
+            push_addr = instructions[0].split()[1:3]
+            pop_addr = extra_parts[1:3]
+            
+            # Case where pop address is the same as push address
+            if push_addr == pop_addr:
+                the_string_to_return += go_to_address(*pop_addr, name_of_file) + "M=D\n"
             else:
-                the_string_to_return =load_address(extra.split()[1],extra.split()[2], name_of_file) + "@13\nM=D\n" + the_string_to_return + "@13\nA=M\nM=D\n"
-    return f"\n//caught  {instructions} with {extra}\n" + the_string_to_return
+                if is_reachable(*pop_addr):
+                    the_string_to_return += go_to_address(*pop_addr, name_of_file) + "M=D\n"
+                else:
+                    the_string_to_return = (load_address(*pop_addr, name_of_file) + "@13\nM=D\n"+ the_string_to_return + "@13\nA=M\nM=D\n")
 
+    return f"\n//caught {instructions} with {extra}\n" + the_string_to_return
