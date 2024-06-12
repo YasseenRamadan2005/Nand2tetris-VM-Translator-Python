@@ -89,7 +89,6 @@ def load_value_at_address(segment, index, name_of_file):
 
 
 def sole_push_instruction(instruction, name_of_file):
-    print(instruction)
     _, segment, index = instruction.split()
     go_to_top_of_stack = "@SP\nM=M+1\nA=M-1\n"
 
@@ -416,9 +415,13 @@ def MATH_two_pushes(instructions, name_of_file, extra=""):
 def math_one_push(instructions, name_of_file, extra=""):
     the_string_to_return = ""
     push_value = load_value_at_address(instructions[0].split()[1], instructions[0].split()[2], name_of_file)
-    
+    is_the_first_math_instruction_two_input = False
     # Case 1: one push with a two-input math instruction
     if instructions[1] in two_input_simple_ops:
+        #If the extra instruction is also a two-input math instruction, then this group is -1 on the stack.
+        if extra in two_input_simple_ops:
+            return f"\n//caught {instructions} with {extra}\n" + the_string_to_return + push_value + "@SP\nAM=M-1\n" +math_op_map[instructions[1]] + "\n" + "A=A-1\n" + math_op_map_with_M[extra] + "\n"
+        is_the_first_math_instruction_two_input = True
         the_string_to_return += push_value + "@SP\nA=M-1\n" + math_op_map_with_M[instructions[1]] + "\n"
     else:
         the_string_to_return += push_value + ("D=-D\n" if instructions[1] == "not" else "D=!D\n")
@@ -426,12 +429,13 @@ def math_one_push(instructions, name_of_file, extra=""):
     if extra:
         extra_parts = extra.split()
         if extra in one_input_ops:
-            the_string_to_return += ("M=-M\n" if extra == "not" else "M=!M\n")
-        elif extra in two_input_simple_ops:
-            if instructions[1] in two_input_simple_ops:
-                the_string_to_return += "@SP\nAM=M-1\nA=A-1\n" + math_op_map_with_M[extra] + "\n"
+            #If the previous instruction was a two-input instuction, then we are currently on the stack. Else, we need to push the value to the stack
+            if is_the_first_math_instruction_two_input:
+                the_string_to_return += ("M=-M\n" if extra == "not" else "M=!M\n")
             else:
-                the_string_to_return += "@SP\nA=M-1\nA=A-1\n" + math_op_map_with_M[extra] + "\n"
+                the_string_to_return += ("D=-D\n" if extra == "not" else "D=!D\n") + push_D_register_on_the_stack
+        elif extra in two_input_simple_ops:
+            the_string_to_return += "@SP\nA=M-1\nA=A-1\n" + math_op_map_with_M[extra] + "\n"
         else:
             push_addr = instructions[0].split()[1:3]
             pop_addr = extra_parts[1:3]
@@ -444,5 +448,4 @@ def math_one_push(instructions, name_of_file, extra=""):
                     the_string_to_return += go_to_address(*pop_addr, name_of_file) + "M=D\n"
                 else:
                     the_string_to_return = (load_address(*pop_addr, name_of_file) + "@13\nM=D\n"+ the_string_to_return + "@13\nA=M\nM=D\n")
-
     return f"\n//caught {instructions} with {extra}\n" + the_string_to_return
