@@ -169,13 +169,11 @@ def grouper_and_translate(instructions, name_of_file):
             elif operation == "call":
                 name_of_function = current_line.split()[1]
                 amount_of_function_calls[current_function] += 1
-                print("Call instruction: ", "\n\tcurrent_line: " + current_line, "\n\tcurrent_function: " + current_function, amount_of_function_calls[current_function], amount_of_function_calls)
                 asm_code += convert_call(current_line, current_function, amount_of_function_calls[current_function])
             elif operation == "if-goto":
                 asm_code += convert_if_goto(current_line,current_function)
             elif operation == "function":
                 name_of_function = current_line.split()[1]
-                print("Function Instruction: ", name_of_function)
                 current_function = name_of_function
                 amount_of_function_calls[current_function] = 1
                 asm_code += convert_function(current_line, name_of_file)
