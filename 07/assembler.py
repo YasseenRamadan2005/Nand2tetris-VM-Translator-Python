@@ -4,6 +4,7 @@ comparison_ops = {"gt", "lt", "eq"}
 one_input_ops = {"neg", "not"}
 amount_of_return_calls_for_the_comparison_ops = 0
 push_D_register_on_the_stack = "\n@SP\nM=M+1\nA=M-1\nM=D\n"
+
 segment_map = {
     "argument": "ARG",
     "local": "LCL",
@@ -91,14 +92,18 @@ def load_value_at_address(segment, index, name_of_file):
 def sole_push_instruction(instruction, name_of_file):
     _, segment, index = instruction.split()
     go_to_top_of_stack = "@SP\nM=M+1\nA=M-1\n"
-
+    the_comment = f"//{instruction} in {name_of_file}\n"
     # Load constant value onto stack
     if segment == "constant":
         if index == "0":
-            return go_to_top_of_stack + "M=0\n"
+            return the_comment + go_to_top_of_stack + "M=0\n"
         elif index == "1":
-            return go_to_top_of_stack + "M=1\n"
-        return f"\n@{index}\nD=A\n{go_to_top_of_stack}M=D\n"
+            return the_comment + go_to_top_of_stack + "M=1\n"
+        elif index == "-1":
+            return the_comment + go_to_top_of_stack + "M=-1\n"
+        elif index == "2":
+            return the_comment + "@SP\nM=M+1\nA=M-1\nM=1\nM=M+1\n"
+        return the_comment + f"\n@{index}\nD=A\n{go_to_top_of_stack}M=D\n"
 
     # Load value from segment onto stack
     address_code = go_to_address(segment, index, name_of_file)
@@ -150,6 +155,10 @@ def push_pop_optimized(push_instruction, pop_instruction, name_of_file):
     _, push_segment, push_index = push_instruction.split()
     _, pop_segment, pop_index = pop_instruction.split()
     optimized_code = "//" + push_instruction + " , " + pop_instruction + "\n"
+
+    #Check if pushing 0, 1 or -1
+    if push_segment == "constant" and push_index in {"0", "1", "-1"}:
+        return optimized_code + go_to_address(pop_segment, pop_index, name_of_file) + f"M={push_index}\n"
 
     # If the pop address is unreachable, then store the address @13. Then store the push value in the D register and load at the address @13.
 
@@ -403,7 +412,7 @@ def MATH_two_pushes(instructions, name_of_file, extra=""):
     # Case: two pushes and a math with a one-input math instruction
     if extra in one_input_ops:
         the_string_to_return += set_D_regster_to_correct_value_from_two_pushes_and_a_two_input_math(instructions, name_of_file)
-        the_string_to_return += "\nD=-D\n" if extra == "not" else "\nD=!D\n"
+        the_string_to_return += "\nD=!D\n" if extra == "not" else "\nD=-D\n"
         return the_string_to_return + push_D_register_on_the_stack
     
     # Case: two pushes and a math with a two-input math instruction
@@ -424,7 +433,7 @@ def math_one_push(instructions, name_of_file, extra=""):
         is_the_first_math_instruction_two_input = True
         the_string_to_return += push_value + "@SP\nA=M-1\n" + math_op_map_with_M[instructions[1]] + "\n"
     else:
-        the_string_to_return += push_value + ("D=-D\n" if instructions[1] == "not" else "D=!D\n")
+        the_string_to_return += push_value + ("D=!D\n" if instructions[1] == "not" else "D=-D\n")
 
     if extra:
         extra_parts = extra.split()
@@ -433,7 +442,7 @@ def math_one_push(instructions, name_of_file, extra=""):
             if is_the_first_math_instruction_two_input:
                 the_string_to_return += ("M=-M\n" if extra == "not" else "M=!M\n")
             else:
-                the_string_to_return += ("D=-D\n" if extra == "not" else "D=!D\n") + push_D_register_on_the_stack
+                the_string_to_return += ("D=!D\n" if extra == "not" else "D=-D\n") + push_D_register_on_the_stack
         elif extra in two_input_simple_ops:
             the_string_to_return += "@SP\nA=M-1\nA=A-1\n" + math_op_map_with_M[extra] + "\n"
         else:
@@ -449,3 +458,68 @@ def math_one_push(instructions, name_of_file, extra=""):
                 else:
                     the_string_to_return = (load_address(*pop_addr, name_of_file) + "@13\nM=D\n"+ the_string_to_return + "@13\nA=M\nM=D\n")
     return f"\n//caught {instructions} with {extra}\n" + the_string_to_return
+
+
+
+def convert_label(instructions, name_of_function):
+    label_name = instructions.split()[1]
+    return f"//\"{instructions}\" in {name_of_function}\n({name_of_function}${label_name})\n"
+
+def convert_goto(instructions,name_of_function):
+    label_name = instructions.split()[1]
+    return f"//\"{instructions}\" in {name_of_function}\n@{name_of_function}${label_name}\n0;JMP\n"
+
+def convert_if_goto(instructions,current_function):
+    #If goto pops the stack
+    label_name = instructions.split()[1]
+    return f"//\"{instructions}\" in {current_function}\n@SP\nAM=M-1\nD=M\n" + f"@{current_function}${label_name}\nD;JNE\n"
+
+
+def convert_return():
+    the_string_to_return = ""
+    #endframe=LCL
+    the_string_to_return += "@LCL\nD=M\n@endframe\nM=D\n"
+    #redAddr = *(endframe - 5)
+    the_string_to_return += "@5\nA=D-A\nD=M\n@retAddr\nM=D\n" 
+    #*ARG = pop()
+    the_string_to_return += "@SP\nAM=M-1\nD=M\n@ARG\nA=M\nM=D\n"
+    #SP = ARG + 1
+    the_string_to_return += "@ARG\nD=M\n@SP\nM=D+1\n"
+    #THAT = *(endframe - 1)
+    the_string_to_return += "@endframe\nA=M-1\nD=M\n@THAT\nM=D\n"
+    #THIS = *(endframe - 2)
+    the_string_to_return += "@endframe\nA=M-1\nA=A-1\nD=M\n@THIS\nM=D\n"
+    #ARG = *(endframe - 3)
+    the_string_to_return += "@3\nD=A\n@endframe\nA=M-D\nD=M\n@ARG\nM=D\n"
+    #LCL = *(endframe - 4)
+    the_string_to_return += "@4\nD=A\n@endframe\nA=M-D\nD=M\n@LCL\nM=D\n"
+    #goto retAddr
+    return the_string_to_return + "@retAddr\nA=M\n0;JMP\n"
+
+
+def convert_function(instructions,name_of_file):
+    _, funcation_name, amount_of_locals = instructions.split()
+    return f"({funcation_name})\n" + (sole_push_instruction("push constant 0",name_of_file) * int(amount_of_locals))
+
+
+def convert_call(instructions, current_function, call_number):
+    _, name_of_function, amount_of_arguments = instructions.split()
+    name_of_function = instructions.split()[1]
+    return_address = f"{current_function}$ret.{call_number}"
+    #push return_address
+    the_string_to_return = f"//call {name_of_function}\n@{return_address}\nD=A\n@SP\nAM=M+1\nA=A-1\nM=D\n"
+    #push LCL
+    the_string_to_return += f"//push LCL\n@LCL\nD=M\n@SP\nAM=M+1\nA=A-1\nM=D\n"
+    #push ARG
+    the_string_to_return += f"//push ARG\n@ARG\nD=M\n@SP\nAM=M+1\nA=A-1\nM=D\n"
+    #push THIS
+    the_string_to_return += f"//push THIS\n@THIS\nD=M\n@SP\nAM=M+1\nA=A-1\nM=D\n"
+    #push THAT
+    the_string_to_return += f"//push THAT\n@THAT\nD=M\n@SP\nAM=M+1\nA=A-1\nM=D\n"
+    #ARG = SP - 5 - amount_of_arguments
+    the_string_to_return += "//ARG = SP - 5 - nArgs\n@" + str(int(amount_of_arguments) + 5) + "\nD=A\n@SP\nD=M-D\n@ARG\nM=D\n"
+    #LCL = SP
+    the_string_to_return += "//LCL = SP\n@SP\nD=M\n@LCL\nM=D\n"
+    #goto name_of_function
+    #(return address)
+    return the_string_to_return + f"@{name_of_function}\n0;JMP\n({return_address})\n"
