@@ -4,20 +4,28 @@ from assembler import (
     sole_push_instruction,
     sole_pop_instruction,
     convert_sole_math_instr,
-    convert_double_push_math_group,
-    convert_push_math_group,
     push_pop_parser,
-    push_pop_optimized,
     math_one_push,
     MATH_two_pushes,
+    convert_call,
+    convert_function,
+    convert_if_goto,
+    convert_goto,
+    convert_label,
+    convert_return
 )
+
+
+#This is the amount of time a function calls another function, not the amount a time a function is called.
+amount_of_function_calls = {"Sys.init":0}
+has_done_the_boot_strap = False
 
 # Define sets of different types of operations
 simple_two_input_ops = {"add", "sub", "and", "or"}
 comp_ops = {"gt", "lt", "eq"}
 one_input_ops = {"neg", "not"}
-
-
+has_seen_comp_ops = False
+current_function = ""
 def count_consecutive_ops(lines, start_index, op):
     """Counts consecutive occurrences of a given operation starting from a specific index."""
     count = 0
@@ -42,8 +50,11 @@ def remove_comments(lines):
 def grouper_and_translate(instructions, name_of_file):
     """Groups and translates VM instructions to assembly code."""
     asm_code = ""
-    if "eq" in instructions or "lt" in instructions or "gt" in instructions:
+    global has_seen_comp_ops
+    global current_function
+    if (("\neq" in instructions) or ("\nlt" in instructions) or ("\ngt" in instructions)) and not(has_seen_comp_ops):
         # Add assembly code for comparison operations
+        has_seen_comp_ops = True
         asm_code += "@SKIP\n0;JMP\n(COMP_BEGIN)\n@13\nM=D //Store the return address @13\n@SP\nA=M-1\nD=M\nA=A-1\nD=M-D //Calculate the difference\n\n@15\nM=D\n@14 //Check the flag @14\nD=M\n@EQ_BEGIN\nD;JEQ\n@LT_BEGIN\nD;JLT\n\n//By this case, this is the greater than subroutine\n@15\nD=M\n@RETURN_TRUE\nD;JGT\n@RETURN_FALSE\n0;JMP\n\n(EQ_BEGIN)\n@15\nD=M\n@RETURN_TRUE\nD;JEQ\n@RETURN_FALSE\n0;JMP\n\n(LT_BEGIN)\n@15\nD=M\n@RETURN_TRUE\nD;JLT\n@RETURN_FALSE\n0;JMP\n\n(RETURN_TRUE)\nD=-1;\n@COMPLETE\n0;JMP\n\n(RETURN_FALSE)\nD=0;\n@COMPLETE\n0;JMP\n\n(COMPLETE)\n@SP\nAM=M-1\nA=A-1\nM=D\n@13\nA=M\n0;JMP\n(SKIP)\n\n"
 
     lines = instructions.splitlines()
@@ -62,7 +73,6 @@ def grouper_and_translate(instructions, name_of_file):
             if next_op == "pop":
                 # If consecutive push and pop operations, parse them together
                 pop_count = count_consecutive_ops(lines, index + push_count, "pop")
-                # print(pop_count, push_count)
                 if push_count == pop_count:
                     asm_code += push_pop_parser(lines[index : index + push_count + pop_count], name_of_file)
                 else:
@@ -96,7 +106,6 @@ def grouper_and_translate(instructions, name_of_file):
                 elif next_op in one_input_ops:
                     # By this case I know there exists at least on extra push despite having a one input math instruction
                     for i in range(push_count - 1):
-                        print(lines[index + i])
                         asm_code += sole_push_instruction(
                             lines[index + i], name_of_file
                         )
@@ -150,27 +159,66 @@ def grouper_and_translate(instructions, name_of_file):
             if operation in {"pop"}:
                 # Parse pop instruction
                 asm_code += sole_pop_instruction(current_line, name_of_file)
-            elif (
-                operation in simple_two_input_ops
-                or operation in one_input_ops
-                or operation in comp_ops
-            ):
+            elif (operation in simple_two_input_ops or operation in one_input_ops or operation in comp_ops):
                 # Parse math instructions
                 asm_code += convert_sole_math_instr(operation)
+            elif operation == "label":
+                asm_code += convert_label(current_line, current_function)
+            elif operation == "return":
+                asm_code += "//Returning:\n\n" + convert_return()
+            elif operation == "call":
+                name_of_function = current_line.split()[1]
+                amount_of_function_calls[current_function] += 1
+                print("Call instruction: ", "\n\tcurrent_line: " + current_line, "\n\tcurrent_function: " + current_function, amount_of_function_calls[current_function], amount_of_function_calls)
+                asm_code += convert_call(current_line, current_function, amount_of_function_calls[current_function])
+            elif operation == "if-goto":
+                asm_code += convert_if_goto(current_line,current_function)
+            elif operation == "function":
+                name_of_function = current_line.split()[1]
+                print("Function Instruction: ", name_of_function)
+                current_function = name_of_function
+                amount_of_function_calls[current_function] = 1
+                asm_code += convert_function(current_line, name_of_file)
+            elif operation == "goto":
+                asm_code += convert_goto(current_line,current_function)
             index += 1
     return asm_code
 
 
-def translate_file(vm_file_path):
-    """Translates a single .vm file to .asm."""
-    name_of_file = os.path.splitext(os.path.basename(vm_file_path))[0]
-    asm_file_path = os.path.splitext(vm_file_path)[0] + ".asm"
-    with open(vm_file_path, "r") as vm_file:
-        vm_instructions = vm_file.read()
-    asm_code = grouper_and_translate(vm_instructions, name_of_file)
-    with open(asm_file_path, "w") as asm_file:
-        asm_file.write(asm_code)
 
+def translate_file(file_path):
+    with open(file_path, 'r') as file:
+        instructions = file.read()
+    return grouper_and_translate(instructions, os.path.basename(file_path))
+
+def process_vm_files(directory_path):
+    lowest_directory_name = get_lowest_directory_name(directory_path)
+    output_file_path = os.path.join(directory_path, f"{lowest_directory_name}.asm")
+    
+    vm_files = [f for f in os.listdir(directory_path) if f.endswith('.vm')]
+    if not vm_files:
+        print("No .vm files found in the directory.")
+        return
+    
+    has_sys_vm = 'Sys.vm' in vm_files
+    
+    with open(output_file_path, 'w') as output_file:
+        if has_sys_vm:
+            # Write the initialization code
+            output_file.write("@256\nD=A\n@SP\nM=D\n" + convert_call("call Sys.init 0", "init", 1))
+        
+        # Process each .vm file and append the result to the output file
+        for vm_file in vm_files:
+            vm_file_path = os.path.join(directory_path, vm_file)
+            with open(vm_file_path, 'r') as file:
+                instructions = file.read()
+            assembly_code = grouper_and_translate(instructions, vm_file)
+            output_file.write(assembly_code)
+    
+    print(f"Assembly code written to {output_file_path}")
+
+def get_lowest_directory_name(directory_path):
+    return os.path.basename(directory_path.rstrip(os.sep))
 
 def main():
     """Main function to handle file or directory input and translate .vm files to .asm."""
@@ -181,17 +229,18 @@ def main():
     input_path = sys.argv[1]
     if os.path.isdir(input_path):
         # If input is a directory, translate all .vm files in the directory
-        for file_name in os.listdir(input_path):
-            if file_name.endswith(".vm"):
-                translate_file(os.path.join(input_path, file_name))
+        process_vm_files(input_path)
     elif os.path.isfile(input_path) and input_path.endswith(".vm"):
         # If input is a single .vm file, translate it
-        translate_file(input_path)
+        asm_file_path = os.path.splitext(input_path)[0] + ".asm"
+        with open(asm_file_path, "w") as asm_file:
+            asm_file.write(translate_file(input_path))
+        print("Translation complete: " + asm_file_path)
     else:
         # Invalid input path
         print("Error: Invalid input path. Provide a .vm file or a directory containing .vm files.")
         sys.exit(1)
 
-
 if __name__ == "__main__":
     main()
+
